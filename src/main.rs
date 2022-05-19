@@ -1,4 +1,5 @@
 use std::{
+    env::VarError,
     error::Error,
     io::{self, Stderr},
     time::Duration,
@@ -35,6 +36,8 @@ enum Command {
     Select,
     #[clap(about = "Clear xadb cache")]
     ClearCache,
+    #[clap(about = "Get product for currently selected adb device")]
+    CurrentProduct,
 }
 
 async fn build_and_run_app(
@@ -82,6 +85,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::ClearCache => {
             let _ = Cache::clear().await;
+            Ok(())
+        }
+        Command::CurrentProduct => {
+            let cache = Cache::load_from_disk().await?;
+
+            let serial = match std::env::var("ANDROID_SERIAL") {
+                Ok(serial) => serial,
+                Err(VarError::NotPresent) => {
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    eprintln!("Error: {:?}", err);
+                    std::process::exit(1);
+                }
+            };
+
+            if let Some(device) = cache.devices.get(&serial) {
+                if let Some(live) = &device.live {
+                    println!("{}", live.product);
+                } else {
+                    println!("{}", serial);
+                }
+            }
             Ok(())
         }
     }
