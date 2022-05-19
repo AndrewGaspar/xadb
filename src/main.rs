@@ -6,7 +6,8 @@ use std::{
 };
 
 use cache::Cache;
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use cli::{Args, Command};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -16,6 +17,7 @@ use device_select::DeviceSelectApp;
 use tui::{backend::CrosstermBackend, Terminal};
 
 mod cache;
+mod cli;
 mod init_shell;
 mod commands {
     pub(crate) mod adb;
@@ -23,27 +25,6 @@ mod commands {
 }
 mod device_select;
 mod devices;
-
-#[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    #[clap(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    #[clap(about = "Interactive list of adb devices")]
-    List,
-    #[clap(about = "Clear xadb cache")]
-    ClearCache,
-    #[clap(about = "Get product for currently selected adb device")]
-    CurrentProduct,
-    #[clap(about = "Print shell integration function")]
-    InitShell { shell: String },
-    #[clap(about = "Interactively select adb device to use in current shell")]
-    Select,
-}
 
 async fn build_and_run_app(
     terminal: &mut Terminal<CrosstermBackend<Stderr>>,

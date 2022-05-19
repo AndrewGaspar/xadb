@@ -1,3 +1,4 @@
+use clap::IntoApp;
 use quick_error::quick_error;
 
 quick_error! {
@@ -11,6 +12,8 @@ quick_error! {
 }
 
 fn bash_shell() -> Result<(), Error> {
+    let mut cli = crate::cli::Args::command();
+
     let script = format!(
         r#"
 xadb () {{
@@ -27,6 +30,12 @@ xadb () {{
     );
 
     println!("{script}");
+    clap_complete::generate(
+        clap_complete::Shell::Bash,
+        &mut cli,
+        "xadb",
+        &mut std::io::stdout(),
+    );
 
     Ok(())
 }

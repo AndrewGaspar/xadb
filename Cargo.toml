@@ -1,6 +1,6 @@
 [package]
 name = "xadb"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Andrew Gaspar <agaspar@fb.com>"]
 description = "Interactive tool for managing adb connections"
@@ -9,7 +9,9 @@ description = "Interactive tool for managing adb connections"
 
 [dependencies]
 async-stream = "0.3.3"
+clap_complete = "3.1.4"
 crossterm = "0.23"
+fd-lock = "3.0.5"
 home = "0.5"
 lazy_static = "1.4"
 quick-error = "2.0"
@@ -18,7 +20,6 @@ serde_json = "1.0"
 shell-words = "1.1"
 tokio-stream = "0.1.8"
 tui = "0.18"
-fd-lock = "3.0.5"
 
 [dependencies.clap]
 version = "3.1.18"
