@@ -1,6 +1,6 @@
 [package]
 name = "xadb"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Andrew Gaspar <agaspar@fb.com>"]
 description = "Interactive tool for managing adb connections"

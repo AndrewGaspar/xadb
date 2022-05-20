@@ -19,4 +19,6 @@ pub enum Command {
     InitShell { shell: String },
     #[clap(about = "Interactively select adb device to use in current shell")]
     Select,
+    #[clap(about = "Get battery level for adb device")]
+    Battery,
 }

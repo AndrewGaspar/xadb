@@ -16,6 +16,7 @@ use crossterm::{
 use device_select::DeviceSelectApp;
 use tui::{backend::CrosstermBackend, Terminal};
 
+mod battery;
 mod cache;
 mod cli;
 mod init_shell;
@@ -123,5 +124,10 @@ eval "$(xadb init-shell bash)"
                 std::process::exit(1);
             }
         },
+        Command::Battery => {
+            let level = battery::battery().await?;
+            println!("{level}");
+            Ok(())
+        }
     }
 }
