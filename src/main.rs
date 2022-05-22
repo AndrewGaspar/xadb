@@ -99,8 +99,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::InitShell { shell } => Ok(init_shell::init_shell(&shell)?),
         Command::Select => match std::env::var("XADB_INIT_SHELL") {
-            Ok(var) => {
-                assert_eq!("bash", var, "Only bash is currently supported");
+            Ok(shell) => {
+                match shell.as_str() {
+                    "bash" | "zsh" => (),
+                    _ => {
+                        panic!("Shell {shell} not supported");
+                    }
+                }
 
                 let var = std::env::var("XADB_TEMP_FILE").expect("XADB_TEMP_FILE not set!");
                 tokio::fs::write(
