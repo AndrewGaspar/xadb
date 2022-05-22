@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use async_stream::try_stream;
+use futures::channel::mpsc;
 use quick_error::quick_error;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::commands::{adb, fastboot};
@@ -108,6 +110,83 @@ pub fn query_devices_continuously(
             let devices = online_devices().collect().await;
             yield devices?;
             tokio::time::sleep(poll_rate).await;
+        }
+    }
+}
+
+pub struct DeviceServiceBuilder {
+    auto_poll_rate: Option<Duration>,
+    auto_cache_rate: Option<Duration>,
+}
+
+impl DeviceServiceBuilder {
+    pub fn new() -> Self {
+        Self {
+            auto_poll_rate: None,
+            auto_cache_rate: None,
+        }
+    }
+
+    pub fn auto_poll(&mut self, rate: Duration) -> &mut Self {
+        self.auto_poll_rate = Some(rate);
+        self
+    }
+
+    pub fn auto_cache(&mut self, rate: Duration) -> &mut Self {
+        self.auto_poll_rate = Some(rate);
+        self
+    }
+
+    pub fn build() -> DeviceService {
+        let task = tokio::spawn(device_service_loop());
+
+        DeviceService { task }
+    }
+}
+
+pub enum DeviceState {
+    Device,
+    Fastboot,
+    Offline,
+}
+
+pub enum DeviceEventType {
+    Hello,
+    StateChange { old: String, new: String },
+}
+
+pub struct DeviceEvent {
+    serial: String,
+    event: DeviceEventType,
+}
+
+struct DeviceServiceSubscription {
+    tx: mpsc::Sender<Result<DeviceEvent, Error>>,
+}
+
+pub struct DeviceService {
+    task: JoinHandle<()>,
+    new_subscribers_tx: mpsc::Sender<DeviceServiceSubscription>,
+}
+
+impl DeviceService {
+    pub fn subscribe_device_events(&self) -> impl Stream<Item = Result<DeviceEvent, Error>> {
+        let (tx, rx) = mpsc::channel(32);
+
+        let subscription = DeviceServiceSubscription { tx };
+
+        rx
+    }
+}
+
+async fn device_service_loop(mut new_subscribers_rx: mpsc::Receiver<DeviceServiceSubscription>) {
+    let cache = crate::cache::Cache::load_from_disk().await;
+
+    let mut subscriptions = vec![];
+
+    loop {
+        while let Ok(Some(subscription)) = new_subscribers_rx.try_next() {
+            subscriptions.push(subscription);
         }
     }
 }
