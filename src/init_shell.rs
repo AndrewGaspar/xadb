@@ -1,4 +1,4 @@
-use clap::IntoApp;
+use clap::CommandFactory;
 use quick_error::quick_error;
 
 quick_error! {
