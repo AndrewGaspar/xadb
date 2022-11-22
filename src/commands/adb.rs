@@ -9,6 +9,8 @@ use tokio_stream::Stream;
 
 use crate::devices::AdbDevice;
 
+mod logcat;
+
 fn get_adb() -> Command {
     tokio::process::Command::new("adb")
 }
@@ -64,3 +66,5 @@ pub fn devices() -> impl Stream<Item = Result<AdbDevice, crate::devices::Error>>
         }
     }
 }
+
+pub use logcat::*;

@@ -10,8 +10,10 @@ description = "Interactive tool for managing adb connections"
 [dependencies]
 async-stream = "0.3.3"
 clap_complete = "3.1.4"
+chrono = "0.4.23"
 crossterm = "0.23"
 fd-lock = "3.0.5"
+futures = "0.3.25"
 home = "0.5"
 lazy_static = "1.4"
 quick-error = "2.0"
@@ -20,6 +22,7 @@ serde_json = "1.0"
 shell-words = "1.1"
 tokio-stream = "0.1.8"
 tui = "0.18"
+bytes = "1.2.1"
 
 [dependencies.clap]
 version = "3.1.18"
@@ -32,3 +35,7 @@ features = ["derive"]
 [dependencies.tokio]
 version = "1.18"
 features = ["fs", "io-util", "macros", "process", "rt", "rt-multi-thread"]
+
+[dependencies.tokio-util]
+version = "0.7.4"
+features = ["codec"]

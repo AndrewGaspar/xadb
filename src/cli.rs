@@ -21,4 +21,6 @@ pub enum Command {
     Select,
     #[clap(about = "Get battery level for adb device")]
     Battery,
+    #[clap(about = "Enhanced logcat")]
+    Logcat,
 }

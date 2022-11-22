@@ -20,6 +20,8 @@ mod battery;
 mod cache;
 mod cli;
 mod init_shell;
+mod logcat;
+
 mod commands {
     pub(crate) mod adb;
     pub(crate) mod fastboot;
@@ -132,6 +134,10 @@ eval "$(xadb init-shell bash)"
         Command::Battery => {
             let level = battery::battery().await?;
             println!("{level}");
+            Ok(())
+        }
+        Command::Logcat => {
+            logcat::LogcatApp::run(None).await?;
             Ok(())
         }
     }
