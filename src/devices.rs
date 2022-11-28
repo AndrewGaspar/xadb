@@ -1,9 +1,11 @@
-use std::time::Duration;
+use std::{collections::HashMap, thread::current, time::Duration};
 
 use async_stream::try_stream;
 use quick_error::quick_error;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::io::{AsyncRead, BufReader};
 use tokio_stream::{Stream, StreamExt};
 
 use crate::commands::{adb, fastboot};
@@ -19,7 +21,7 @@ pub struct AdbDeviceProperties {
     pub connection_state: String,
     pub devpath: String,
     #[serde(flatten)]
-    pub live: Option<AdbDeviceLiveProperties>,
+    pub properties: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -36,6 +38,101 @@ quick_error! {
         Parse(line: String)
         Io(err: std::io::Error) {
             from()
+        }
+    }
+}
+
+fn split_property(property: &str) -> Option<(&str, &str)> {
+    Some(property.split_at(property.find(':')?))
+}
+
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
+enum ParseDeviceState {
+    Serial,
+    ConnectionState,
+    Properties,
+}
+
+struct ParseDeviceStateMachine<S>
+where
+    S: Stream<Item = char> + std::marker::Unpin,
+{
+    stream: S,
+    state: ParseDeviceState,
+    current_token: Option<String>,
+    serial: Option<String>,
+    connection_state: Option<String>,
+    devpath: Option<String>,
+    properties: HashMap<String, Value>,
+}
+
+impl<S> ParseDeviceStateMachine<S>
+where
+    S: Stream<Item = char> + std::marker::Unpin,
+{
+    pub fn new(stream: S) -> Self {
+        ParseDeviceStateMachine {
+            stream,
+            state: ParseDeviceState::Serial,
+            current_token: None,
+            serial: None,
+            connection_state: None,
+            devpath: None,
+            properties: Default::default(),
+        }
+    }
+
+    fn flush_current_token(&mut self) {
+        match self.state {
+            ParseDeviceState::Serial => {
+                self.serial = self.current_token.take();
+            }
+            ParseDeviceState::ConnectionState => {
+                self.connection_state = self.current_token.take();
+            }
+            ParseDeviceState::Properties => {
+                if let Some(token) = self.current_token.take() {
+                    if let Some((key, value)) = split_property(&token) {
+                        self.properties
+                            .insert(key.to_owned(), serde_json::Value::from(value.to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn parse_all<'a>(&'a mut self) -> impl 'a + Stream<Item = Result<AdbDevice, Error>> {
+        try_stream! {
+            while let Some(c) = self.stream.next().await {
+                match c {
+                    '\n' if self.state != ParseDeviceState::ConnectionState => {
+                        self.flush_current_token();
+                    }
+                }
+            }
+
+            yield AdbDevice {
+                serial: self.serial.take().unwrap(),
+                properties: AdbDeviceProperties {
+                    connection_state: self.connection_state.take().unwrap(),
+                    devpath: self.devpath.take().unwrap(),
+                    properties: self.properties.clone(),
+                },
+            };
+        }
+    }
+}
+
+pub fn parse_devices<S>(mut stream: S) -> impl Stream<Item = Result<AdbDevice, Error>>
+where
+    S: Stream<Item = char> + std::marker::Unpin,
+{
+    let state_machine = ParseDeviceStateMachine::new(stream);
+
+    let out_stream = state_machine.parse_all();
+    try_stream! {
+        while let Some(device) = out_stream.next().await {
+            yield Ok(device);
         }
     }
 }
@@ -83,14 +180,16 @@ impl AdbDevice {
             None
         };
 
-        Ok(AdbDevice {
-            serial,
-            properties: AdbDeviceProperties {
-                connection_state,
-                devpath,
-                live,
-            },
-        })
+        todo!()
+
+        // Ok(AdbDevice {
+        //     serial,
+        //     properties: AdbDeviceProperties {
+        //         connection_state,
+        //         devpath,
+        //         live,
+        //     },
+        // })
     }
 }
 
