@@ -44,7 +44,7 @@ impl AdbDevice {
     pub fn parse(line: &str) -> Result<AdbDevice, Error> {
         lazy_static::lazy_static! {
             static ref RE: Regex = Regex::new(r"(?x)
-            ^(?P<serial>[[:xdigit:]]+)
+            ^(?P<serial>\w+)
             \s+
             (?P<connection_state>[[:alpha:]]+)
             \s
