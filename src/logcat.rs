@@ -1,10 +1,28 @@
-use std::{collections::HashSet, io::Stderr};
+use std::{
+    collections::{HashSet, VecDeque},
+    io::Stderr,
+    pin::Pin,
+    time::{Duration, Instant},
+};
 
+use async_stream::try_stream;
+use crossterm::event::{Event, KeyCode, KeyEvent};
+use futures::Stream;
 use quick_error::quick_error;
+use tokio::pin;
 use tokio_stream::StreamExt;
-use tui::{backend::CrosstermBackend, Terminal};
+use tui::{
+    backend::{Backend, CrosstermBackend},
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Style},
+    widgets::{Block, Cell, Paragraph, Row, Table, Wrap},
+    Frame, Terminal,
+};
 
-use crate::commands::adb::LogBuffer;
+use crate::{
+    battery::battery,
+    commands::adb::{LogBuffer, LogMessage, TextLogBuffer},
+};
 
 quick_error! {
     #[derive(Debug)]
@@ -21,11 +39,40 @@ quick_error! {
     }
 }
 
-pub struct LogcatApp {}
+fn crossterm_event_stream() -> impl Stream<Item = crossterm::Result<Event>> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    tokio::task::spawn_blocking(move || loop {
+        if crossterm::event::poll(Duration::from_millis(100)).unwrap_or(false) {
+            tx.send(crossterm::event::read()).unwrap();
+        }
+
+        if tx.is_closed() {
+            break;
+        }
+    });
+
+    return tokio_stream::wrappers::UnboundedReceiverStream::from(rx);
+}
+
+pub struct LogcatApp {
+    logs: Vec<LogMessage>,
+    frames: VecDeque<Instant>,
+    battery: Option<Result<i32, crate::battery::Error>>,
+}
 
 impl LogcatApp {
+    pub fn new() -> Self {
+        Self {
+            logs: Default::default(),
+            frames: Default::default(),
+            battery: Default::default(),
+        }
+    }
+
     pub async fn run(
-        terminal: Option<&mut Terminal<CrosstermBackend<Stderr>>>,
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<Stderr>>,
     ) -> Result<(), Error> {
         let serial = match std::env::var("ANDROID_SERIAL") {
             Ok(serial) => serial,
@@ -34,7 +81,7 @@ impl LogcatApp {
                     crate::device_select::DeviceSelectApp::load_initial_state().await?;
 
                 match device_list
-                    .run(terminal.unwrap(), std::time::Duration::from_millis(250))
+                    .run(terminal, std::time::Duration::from_millis(250))
                     .await?
                 {
                     Some(serial) => serial,
@@ -43,21 +90,145 @@ impl LogcatApp {
             }
         };
 
-        let mut logs = crate::commands::adb::logcat(serial.as_str());
+        let logs = crate::commands::adb::logcat(serial.as_str()).filter_map(Result::ok);
+        // let logs = tokio_stream::pending::<Option<LogMessage>>();
+        pin!(logs);
 
-        let mut set = HashSet::new();
-        while let Some(Ok(message)) = logs.next().await {
-            if let LogBuffer::TextLog(buffer) = message.buffer {
-                // match log {
-                //     LogItem::LogMessage(message) => {
-                if !set.contains(&buffer.tag) {
-                    println!("{}", buffer.tag);
-                    set.insert(buffer.tag);
+        let poll_events = crossterm_event_stream().filter_map(|event| {
+            if let Ok(Event::Key(key)) = event {
+                Some(key)
+            } else {
+                None
+            }
+        });
+        pin!(poll_events);
+
+        let mut battery_level_stream: Pin<
+            Box<dyn Stream<Item = Result<i32, crate::battery::Error>>>,
+        > = Box::pin(try_stream! {
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+
+            loop {
+                let battery = battery().await?;
+                yield battery;
+                interval.tick().await;
+            }
+        });
+
+        // self.logs = logs.take(10).collect().await;
+
+        let target_fps = 60;
+        let mut interval = tokio::time::interval(Duration::from_micros(
+            (1000000.0 / target_fps as f64) as u64,
+        ));
+        loop {
+            enum Event {
+                Log(LogMessage),
+                KeyEvent(KeyEvent),
+                Battery(Result<i32, crate::battery::Error>),
+                Tick,
+            }
+
+            let next = tokio::select! {
+                log = logs.next() => {
+                    Event::Log(log.unwrap())
+                },
+                key = poll_events.next() => {
+                    Event::KeyEvent(key.unwrap())
+                },
+                battery = battery_level_stream.next() => {
+                    Event::Battery(battery.unwrap())
+                },
+                _ = interval.tick() => {
+                    Event::Tick
+                },
+            };
+
+            match next {
+                Event::Log(log) => {
+                    self.logs.push(log);
                 }
-                println!("{}", buffer.message);
+                Event::KeyEvent(key) => match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    _ => {}
+                },
+                Event::Battery(battery) => {
+                    self.battery = Some(battery);
+                }
+                Event::Tick => {
+                    self.frames.push_back(Instant::now());
+                    if self.frames.len() > 1024 {
+                        self.frames.pop_front();
+                    }
+                    terminal.draw(|f| self.ui(f)).unwrap();
+                }
             }
         }
+    }
 
-        Ok(())
+    fn ui<B: Backend>(&mut self, f: &mut Frame<B>) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(10), Constraint::Length(1)])
+            .split(f.size());
+
+        let fps = if self.frames.len() >= 16 {
+            Some(
+                (self.frames.len() as f32
+                    / (*self.frames.back().unwrap() - *self.frames.front().unwrap()).as_secs_f32())
+                    as u32,
+            )
+        } else {
+            None
+        };
+
+        let header = Row::new(["tag", "message"]);
+
+        let rows = self
+            .logs
+            .iter()
+            .rev()
+            .scan(chunks[0].height, |height, message| {
+                if *height == 0 {
+                    return None;
+                }
+
+                let LogBuffer::TextLog(ref buffer) = message.buffer else { panic!() };
+
+                let lines = buffer.message.lines().count();
+
+                *height = (*height as usize).saturating_sub(lines) as u16;
+                Some(
+                    Row::new([
+                        Cell::from(buffer.tag.clone()),
+                        Cell::from(buffer.message.clone()),
+                    ]), // .height(lines.try_into().unwrap()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let table = Table::new(rows.into_iter().rev())
+            .style(Style::default().fg(Color::White))
+            .header(header.style(Style::default().bg(Color::Gray).fg(Color::Black)))
+            .widths(&[Constraint::Length(20), Constraint::Percentage(100)]);
+
+        let battery = match self.battery {
+            Some(Ok(battery)) => battery.to_string(),
+            Some(Err(_)) => "err".to_string(),
+            None => "-".to_string(),
+        };
+
+        let fps = match fps {
+            Some(fps) => fps.to_string(),
+            None => "-".to_string(),
+        };
+
+        let status = Paragraph::new(format!("battery: {battery} fps: {fps}"))
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Right)
+            .wrap(Wrap { trim: false });
+
+        f.render_widget(table, chunks[0]);
+        f.render_widget(status, chunks[1]);
     }
 }

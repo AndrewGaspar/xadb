@@ -37,7 +37,7 @@ const LOG_ID_SECURITY: u32 = 6;
 #[allow(unused)]
 const LOG_ID_KERNEL: u32 = 7;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LogLevel {
     Other(u8),
     Verbose,
@@ -59,25 +59,25 @@ pub struct LogLongMessage {
     pub message: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TextLogBuffer {
     pub level: LogLevel,
     pub tag: String,
     pub message: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryLogBuffer {
     pub tag: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LogBuffer {
     TextLog(TextLogBuffer),
     BinaryLog(BinaryLogBuffer),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogMessage {
     pub timestamp: chrono::NaiveDateTime,
     pub pid: i32,
