@@ -38,29 +38,62 @@ async fn build_and_run_app(
     Ok(app.run(terminal, tick_rate).await?)
 }
 
+fn is_tui(args: &Args) -> bool {
+    match args.command {
+        Command::List | Command::Logcat => true,
+        _ => false,
+    }
+}
+
+struct TuiConfiguration {
+    terminal: Terminal<CrosstermBackend<Stderr>>,
+}
+
+impl TuiConfiguration {
+    fn try_drop(&mut self) -> Result<(), Box<dyn Error>> {
+        // restore terminal
+        disable_raw_mode()?;
+        execute!(
+            self.terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        self.terminal.show_cursor()?;
+        Ok(())
+    }
+}
+
+impl Drop for TuiConfiguration {
+    fn drop(&mut self) {
+        let _ignored = self.try_drop();
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
+    // for TUI commands, set up terminal
+    let mut maybe_terminal = if is_tui(&args) {
+        enable_raw_mode()?;
+        let mut stderr = io::stderr();
+        execute!(stderr, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stderr);
+        Some(TuiConfiguration {
+            terminal: Terminal::new(backend)?,
+        })
+    } else {
+        None
+    };
+
     match args.command {
         Command::List => {
-            // setup terminal
-            enable_raw_mode()?;
-            let mut stderr = io::stderr();
-            execute!(stderr, EnterAlternateScreen, EnableMouseCapture)?;
-            let backend = CrosstermBackend::new(stderr);
-            let mut terminal = Terminal::new(backend)?;
+            let terminal = maybe_terminal.as_mut().unwrap();
 
-            let res = build_and_run_app(&mut terminal).await;
+            let res = build_and_run_app(&mut terminal.terminal).await;
 
-            // restore terminal
-            disable_raw_mode()?;
-            execute!(
-                terminal.backend_mut(),
-                LeaveAlternateScreen,
-                DisableMouseCapture
-            )?;
-            terminal.show_cursor()?;
+            // drop terminal before printing output
+            std::mem::drop(maybe_terminal);
 
             match res {
                 Ok(Some(serial)) => {
@@ -137,7 +170,10 @@ eval "$(xadb init-shell bash)"
             Ok(())
         }
         Command::Logcat => {
-            logcat::LogcatApp::run(None).await?;
+            let terminal = maybe_terminal.as_mut().unwrap();
+
+            let mut app = logcat::LogcatApp::new();
+            app.run(&mut terminal.terminal).await?;
             Ok(())
         }
     }
