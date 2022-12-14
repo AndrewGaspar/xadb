@@ -147,7 +147,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     var,
                     format!(
                         r#"
-export ANDROID_SERIAL=$({} list)
+XADB_ANDROID_SERIAL_SELECT=$({} list)
+if [ ! -z "$XADB_ANDROID_SERIAL_SELECT" ]; then
+  export ANDROID_SERIAL="$XADB_ANDROID_SERIAL_SELECT"
+fi
                 "#,
                         std::env::current_exe().unwrap().to_str().unwrap(),
                     ),
