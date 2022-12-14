@@ -15,8 +15,8 @@ use tui::{
 
 use crate::{
     commands::adb::{LogBuffer, LogLevel, LogMessage},
-    fps_overlay::{FpsOverlay, FpsOverlayState},
-    status::{StatusBar, StatusBarState},
+    widgets::fps_overlay::{FpsOverlay, FpsOverlayState},
+    widgets::status::{StatusBar, StatusBarState},
 };
 
 quick_error! {

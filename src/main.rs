@@ -18,18 +18,19 @@ use tui::{backend::CrosstermBackend, Terminal};
 
 mod battery;
 mod cache;
-mod cli;
-mod fps_overlay;
-mod init_shell;
-mod logcat;
-mod status;
-
 mod commands {
     pub(crate) mod adb;
     pub(crate) mod fastboot;
 }
+mod cli;
 mod device_select;
 mod devices;
+mod init_shell;
+mod logcat;
+mod widgets {
+    pub mod fps_overlay;
+    pub mod status;
+}
 
 async fn build_and_run_app(
     terminal: &mut Terminal<CrosstermBackend<Stderr>>,
