@@ -17,13 +17,10 @@ fn bash_shell() -> Result<(), Error> {
     let script = format!(
         r#"
 xadb () {{
-    export XADB_INIT_SHELL=bash
-    export XADB_TEMP_FILE=$(mktemp /tmp/xadb-script.XXXXXX)
-    {} $@
-    source "${{XADB_TEMP_FILE}}"
-    rm "${{XADB_TEMP_FILE}}"
-    unset XADB_TEMP_FILE
-    unset XADB_INIT_SHELL
+    _XADB_TEMP_FILE=$(mktemp /tmp/xadb-script.XXXXXX)
+    XADB_INIT_SHELL=bash XADB_TEMP_FILE="$_XADB_TEMP_FILE" {} $@
+    source "${{_XADB_TEMP_FILE}}"
+    rm "${{_XADB_TEMP_FILE}}"
 }}
     "#,
         std::env::current_exe()?.to_str().unwrap()
