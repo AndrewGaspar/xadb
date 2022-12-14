@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{ops::Range, pin::Pin};
 
 use futures::Stream;
 use tokio_stream::StreamExt;
@@ -119,6 +119,18 @@ impl LogState {
             }
         }
     }
+
+    fn rows_to_display(&self, height: usize) -> Range<usize> {
+        if self.logs.len() <= height {
+            return 0..self.logs.len();
+        }
+
+        match self.anchor {
+            Anchor::Autoscroll => self.logs.len() - height..self.logs.len(),
+            Anchor::Top(index) => index..index + height,
+            Anchor::Bottom(index) => index - height + 1..index + 1,
+        }
+    }
 }
 
 impl<'a> StatefulWidget for Log<'a> {
@@ -137,11 +149,24 @@ impl<'a> StatefulWidget for Log<'a> {
             num_rows -= 2;
         }
 
-        let rows = state
-            .logs
+        let rows_to_display = state.rows_to_display(num_rows as usize);
+
+        // update anchoring
+        if let Some(selected) = state.selected {
+            if selected < rows_to_display.start {
+                state.anchor = Anchor::Top(selected);
+            } else if selected >= rows_to_display.end {
+                state.anchor = Anchor::Bottom(selected);
+            }
+        }
+
+        // update rows to display after fixing anchoring
+        let rows_to_display = state.rows_to_display(num_rows as usize);
+
+        let rows = state.logs[rows_to_display.clone()]
             .iter()
             .enumerate()
-            .rev()
+            .map(|(i, m)| (i + rows_to_display.start, m))
             .map(|(i, message)| {
                 let LogBuffer::TextLog(ref buffer) = message.buffer else { panic!() };
 
@@ -165,7 +190,7 @@ impl<'a> StatefulWidget for Log<'a> {
             .take(num_rows as usize)
             .collect::<Vec<_>>();
 
-        let mut table = Table::new(rows.into_iter().rev())
+        let mut table = Table::new(rows)
             .header(header.style(Style::default().bg(Color::Gray).fg(Color::Black)))
             .widths(&[
                 Constraint::Length(20),
