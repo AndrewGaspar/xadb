@@ -27,11 +27,7 @@ mod device_select;
 mod devices;
 mod init_shell;
 mod logcat;
-mod widgets {
-    pub mod fps_overlay;
-    pub mod log;
-    pub mod status;
-}
+mod widgets;
 
 async fn build_and_run_app(
     terminal: &mut Terminal<CrosstermBackend<Stderr>>,

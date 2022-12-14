@@ -20,6 +20,7 @@ use crate::{
     widgets::{
         log::Log,
         status::{StatusBar, StatusBarState},
+        Control,
     },
 };
 
@@ -108,7 +109,7 @@ impl LogcatApp {
         let mut interval = tokio::time::interval(Duration::from_micros(
             (1000000.0 / target_fps as f64) as u64,
         ));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         let mut update = false;
 
@@ -123,14 +124,14 @@ impl LogcatApp {
                 key = poll_events.next() => {
                     Event::KeyEvent(key.unwrap())
                 },
+                _ = interval.tick(), if update => {
+                    Event::Tick
+                },
                 _ = self.log.as_mut().unwrap().poll() => {
                     Event::WidgetUpdate
                 }
                 _ = self.status_bar.poll() => {
                     Event::WidgetUpdate
-                },
-                _ = interval.tick(), if update => {
-                    Event::Tick
                 },
             };
 
@@ -138,6 +139,22 @@ impl LogcatApp {
                 Event::KeyEvent(key) => match key.code {
                     KeyCode::Char('z') => {
                         self.zoom = !self.zoom;
+                        update = true;
+                    }
+                    KeyCode::Char('k') => {
+                        self.log.as_mut().unwrap().control(Control::Up);
+                        update = true;
+                    }
+                    KeyCode::Char('j') => {
+                        self.log.as_mut().unwrap().control(Control::Down);
+                        update = true;
+                    }
+                    KeyCode::Home => {
+                        self.log.as_mut().unwrap().control(Control::Top);
+                        update = true;
+                    }
+                    KeyCode::End => {
+                        self.log.as_mut().unwrap().control(Control::Bottom);
                         update = true;
                     }
                     KeyCode::Char('?') => {

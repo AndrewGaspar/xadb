@@ -4,11 +4,14 @@ use futures::Stream;
 use tokio_stream::StreamExt;
 use tui::{
     layout::Constraint,
-    style::{Color, Style},
-    widgets::{Block, Cell, Row, StatefulWidget, Table, Widget},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Cell, Row, StatefulWidget, Table, TableState, Widget},
 };
 
-use crate::commands::adb::{LogBuffer, LogLevel, LogMessage, LogcatDecodeError};
+use crate::{
+    commands::adb::{LogBuffer, LogLevel, LogMessage, LogcatDecodeError},
+    widgets::Control,
+};
 
 fn level_to_bg_color(level: LogLevel) -> Option<Color> {
     match level {
@@ -54,9 +57,18 @@ impl<'a> Log<'a> {
     }
 }
 
+#[derive(Copy, Clone)]
+enum Anchor {
+    Autoscroll,
+    Bottom(usize),
+    Top(usize),
+}
+
 pub struct LogState {
     log_stream: Pin<Box<dyn Stream<Item = Result<LogMessage, LogcatDecodeError>>>>,
     logs: Vec<LogMessage>,
+    selected: Option<usize>,
+    anchor: Anchor,
 }
 
 impl LogState {
@@ -65,6 +77,8 @@ impl LogState {
         Self {
             log_stream,
             logs: Default::default(),
+            selected: None,
+            anchor: Anchor::Autoscroll,
         }
     }
 
@@ -76,6 +90,32 @@ impl LogState {
                     return;
                 }
                 _ => {}
+            }
+        }
+    }
+
+    pub fn control(&mut self, control: Control) {
+        match control {
+            Control::Up => {
+                if let Some(selected) = self.selected {
+                    self.selected = Some(selected.saturating_sub(1));
+                } else if self.logs.len() > 0 {
+                    self.selected = Some(self.logs.len() - 1);
+                }
+            }
+            Control::Down => {
+                if let Some(selected) = self.selected {
+                    self.selected = Some((selected + 1).min(self.logs.len() - 1));
+                }
+            }
+            Control::Bottom => {
+                self.selected = None;
+                self.anchor = Anchor::Autoscroll;
+            }
+            Control::Top => {
+                if self.logs.len() > 0 {
+                    self.selected = Some(0);
+                }
             }
         }
     }
@@ -92,21 +132,37 @@ impl<'a> StatefulWidget for Log<'a> {
     ) {
         let header = Row::new(["Tag", "Date", "Message"]);
 
+        let mut num_rows = area.height - 1;
+        if self.block.is_some() {
+            num_rows -= 2;
+        }
+
         let rows = state
             .logs
             .iter()
+            .enumerate()
             .rev()
-            .map(|message| {
+            .map(|(i, message)| {
                 let LogBuffer::TextLog(ref buffer) = message.buffer else { panic!() };
+
+                let mut base_style = style_from_level(buffer.level);
+                if Some(i) == state.selected {
+                    base_style = base_style.patch(
+                        Style::default()
+                            .bg(Color::Gray)
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD),
+                    );
+                }
 
                 Row::new([
                     Cell::from(buffer.tag.as_str()),
                     Cell::from(message.timestamp.to_string()),
                     Cell::from(buffer.message.as_str()),
                 ])
-                .style(style_from_level(buffer.level))
+                .style(base_style)
             })
-            .take(area.height as usize)
+            .take(num_rows as usize)
             .collect::<Vec<_>>();
 
         let mut table = Table::new(rows.into_iter().rev())
