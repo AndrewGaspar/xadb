@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     io::Stderr,
     pin::Pin,
     time::{Duration, Instant},
@@ -15,13 +15,13 @@ use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Cell, Paragraph, Row, Table, Wrap},
     Frame, Terminal,
 };
 
 use crate::{
     battery::battery,
-    commands::adb::{LogBuffer, LogMessage, TextLogBuffer},
+    commands::adb::{LogBuffer, LogMessage},
 };
 
 quick_error! {
@@ -85,7 +85,7 @@ impl LogcatApp {
                     .await?
                 {
                     Some(serial) => serial,
-                    None => std::process::exit(1),
+                    None => return Ok(()),
                 }
             }
         };
