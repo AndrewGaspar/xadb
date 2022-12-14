@@ -103,11 +103,12 @@ pub fn online_devices() -> impl Stream<Item = Result<AdbDevice, crate::devices::
 pub fn query_devices_continuously(
     poll_rate: Duration,
 ) -> impl Stream<Item = Result<Vec<AdbDevice>, crate::devices::Error>> {
+    let mut interval = tokio::time::interval(poll_rate);
     try_stream! {
         loop {
+            interval.tick().await;
             let devices = online_devices().collect().await;
             yield devices?;
-            tokio::time::sleep(poll_rate).await;
         }
     }
 }
