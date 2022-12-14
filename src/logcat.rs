@@ -182,7 +182,7 @@ impl LogcatApp {
             None
         };
 
-        let header = Row::new(["tag", "message"]);
+        let header = Row::new(["Tag", "Date", "Message"]);
 
         let rows = self
             .logs
@@ -201,6 +201,7 @@ impl LogcatApp {
                 Some(
                     Row::new([
                         Cell::from(buffer.tag.clone()),
+                        Cell::from(message.timestamp.to_string()),
                         Cell::from(buffer.message.clone()),
                     ]), // .height(lines.try_into().unwrap()),
                 )
@@ -210,7 +211,11 @@ impl LogcatApp {
         let table = Table::new(rows.into_iter().rev())
             .style(Style::default().fg(Color::White))
             .header(header.style(Style::default().bg(Color::Gray).fg(Color::Black)))
-            .widths(&[Constraint::Length(20), Constraint::Percentage(100)]);
+            .widths(&[
+                Constraint::Length(20),
+                Constraint::Length(20),
+                Constraint::Percentage(100),
+            ]);
 
         let battery = match self.battery {
             Some(Ok(battery)) => battery.to_string(),
