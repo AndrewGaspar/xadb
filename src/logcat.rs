@@ -8,15 +8,19 @@ use tokio_stream::StreamExt;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Cell, Row, Table},
+    widgets::{Block, Borders},
     Frame, Terminal,
 };
 
 use crate::{
-    commands::adb::{LogBuffer, LogLevel, LogMessage},
-    widgets::fps_overlay::{FpsOverlay, FpsOverlayState},
-    widgets::status::{StatusBar, StatusBarState},
+    widgets::{
+        fps_overlay::{FpsOverlay, FpsOverlayState},
+        log::LogState,
+    },
+    widgets::{
+        log::Log,
+        status::{StatusBar, StatusBarState},
+    },
 };
 
 quick_error! {
@@ -50,35 +54,10 @@ fn crossterm_event_stream() -> impl Stream<Item = crossterm::Result<Event>> {
     return tokio_stream::wrappers::UnboundedReceiverStream::from(rx);
 }
 
-fn level_to_bg_color(level: LogLevel) -> Option<Color> {
-    match level {
-        LogLevel::Fatal => Some(Color::Red),
-        LogLevel::Error => Some(Color::LightRed),
-        LogLevel::Warning => Some(Color::Yellow),
-        _ => None,
-    }
-}
-
-fn level_to_fg_color(level: LogLevel) -> Option<Color> {
-    match level {
-        LogLevel::Fatal | LogLevel::Error | LogLevel::Warning => Some(Color::Black),
-        _ => None,
-    }
-}
-
-fn style_from_level(level: LogLevel) -> Style {
-    let mut style = Style::default();
-    if let Some(bg) = level_to_bg_color(level) {
-        style = style.bg(bg);
-    }
-    if let Some(fg) = level_to_fg_color(level) {
-        style = style.fg(fg);
-    }
-    style
-}
-
 pub struct LogcatApp {
-    logs: Vec<LogMessage>,
+    zoom: bool,
+    debug: bool,
+    log: Option<LogState>,
     status_bar: StatusBarState,
     fps_overlay: FpsOverlayState,
 }
@@ -86,7 +65,9 @@ pub struct LogcatApp {
 impl LogcatApp {
     pub fn new() -> Self {
         Self {
-            logs: Default::default(),
+            zoom: false,
+            debug: false,
+            log: Default::default(),
             status_bar: StatusBarState::new(),
             fps_overlay: FpsOverlayState::new(128),
         }
@@ -112,9 +93,7 @@ impl LogcatApp {
             }
         };
 
-        let logs = crate::commands::adb::logcat(serial.as_str()).filter_map(Result::ok);
-        // let logs = tokio_stream::pending::<Option<LogMessage>>();
-        pin!(logs);
+        self.log = Some(LogState::new(serial.as_str()));
 
         let poll_events = crossterm_event_stream().filter_map(|event| {
             if let Ok(Event::Key(key)) = event {
@@ -129,38 +108,42 @@ impl LogcatApp {
         let mut interval = tokio::time::interval(Duration::from_micros(
             (1000000.0 / target_fps as f64) as u64,
         ));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut update = false;
 
         loop {
             enum Event {
-                Log(LogMessage),
                 KeyEvent(KeyEvent),
                 WidgetUpdate,
                 Tick,
             }
 
             let next = tokio::select! {
-                log = logs.next() => {
-                    Event::Log(log.unwrap())
-                },
                 key = poll_events.next() => {
                     Event::KeyEvent(key.unwrap())
                 },
+                _ = self.log.as_mut().unwrap().poll() => {
+                    Event::WidgetUpdate
+                }
                 _ = self.status_bar.poll() => {
                     Event::WidgetUpdate
                 },
-                _ = interval.tick() => {
+                _ = interval.tick(), if update => {
                     Event::Tick
                 },
             };
 
             match next {
-                Event::Log(log) => {
-                    update = true;
-                    self.logs.push(log);
-                }
                 Event::KeyEvent(key) => match key.code {
+                    KeyCode::Char('z') => {
+                        self.zoom = !self.zoom;
+                        update = true;
+                    }
+                    KeyCode::Char('?') => {
+                        self.debug = !self.debug;
+                        update = true;
+                    }
                     KeyCode::Char('q') => return Ok(()),
                     _ => {}
                 },
@@ -178,44 +161,31 @@ impl LogcatApp {
     }
 
     fn ui<B: Backend>(&mut self, f: &mut Frame<B>) {
+        self.fps_overlay.record_new_frame();
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(10), Constraint::Length(1)])
             .split(f.size());
 
-        let header = Row::new(["Tag", "Date", "Message"]);
-
-        let rows = self
-            .logs
-            .iter()
-            .rev()
-            .map(|message| {
-                let LogBuffer::TextLog(ref buffer) = message.buffer else { panic!() };
-
-                Row::new([
-                    Cell::from(buffer.tag.as_str()),
-                    Cell::from(message.timestamp.to_string()),
-                    Cell::from(buffer.message.as_str()),
-                ])
-                .style(style_from_level(buffer.level))
-            })
-            .take(chunks[0].height as usize)
-            .collect::<Vec<_>>();
-
-        let table = Table::new(rows.into_iter().rev())
-            .header(header.style(Style::default().bg(Color::Gray).fg(Color::Black)))
-            .widths(&[
-                Constraint::Length(20),
-                Constraint::Length(20),
-                Constraint::Percentage(100),
-            ]);
-
-        f.render_widget(table, chunks[0]);
+        let mut log = Log::new();
+        if !self.zoom {
+            log = log.block(
+                Block::default()
+                    .title("Log")
+                    .title_alignment(tui::layout::Alignment::Left)
+                    .borders(Borders::all()),
+            );
+        }
+        f.render_stateful_widget(log, chunks[0], self.log.as_mut().unwrap());
 
         let status_bar = StatusBar::new();
         f.render_stateful_widget(status_bar, chunks[1], &mut self.status_bar);
 
-        let fps_overlay = FpsOverlay::new();
-        f.render_stateful_widget(fps_overlay, f.size(), &mut self.fps_overlay);
+        if self.debug {
+            // render overlay last so it can pop over everything else
+            let fps_overlay = FpsOverlay::new();
+            f.render_stateful_widget(fps_overlay, f.size(), &mut self.fps_overlay);
+        }
     }
 }

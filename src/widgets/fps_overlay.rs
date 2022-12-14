@@ -25,6 +25,13 @@ impl FpsOverlayState {
         frames.reserve(num_frames);
         Self { num_frames, frames }
     }
+
+    pub fn record_new_frame(&mut self) {
+        self.frames.push_back(Instant::now());
+        if self.frames.len() > self.num_frames {
+            self.frames.pop_front();
+        }
+    }
 }
 
 impl StatefulWidget for FpsOverlay {
@@ -36,11 +43,6 @@ impl StatefulWidget for FpsOverlay {
         buf: &mut tui::buffer::Buffer,
         state: &mut Self::State,
     ) {
-        state.frames.push_back(Instant::now());
-        if state.frames.len() > state.num_frames {
-            state.frames.pop_front();
-        }
-
         let fps = if state.frames.len() >= 2 {
             Some(
                 (state.frames.len() as f32
@@ -56,7 +58,7 @@ impl StatefulWidget for FpsOverlay {
             None => "-".to_string(),
         };
 
-        let fps = Paragraph::new(format!("fps: {fps}"))
+        let fps = Paragraph::new(format!("fps:{fps:>4}"))
             .alignment(tui::layout::Alignment::Right)
             .style(Style::default().bg(Color::Red).fg(Color::White));
 

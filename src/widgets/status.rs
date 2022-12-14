@@ -47,10 +47,11 @@ impl StatusBarState {
     }
 
     pub async fn poll(&mut self) {
-        while let Some(event) = self.event_stream.next().await {
+        if let Some(event) = self.event_stream.next().await {
             match event {
                 StatusEvent::Battery(battery) => {
                     self.battery = Some(battery);
+                    return;
                 }
             }
         }

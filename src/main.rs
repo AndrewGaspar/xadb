@@ -29,6 +29,7 @@ mod init_shell;
 mod logcat;
 mod widgets {
     pub mod fps_overlay;
+    pub mod log;
     pub mod status;
 }
 
