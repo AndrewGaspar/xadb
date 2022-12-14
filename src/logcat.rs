@@ -1,11 +1,5 @@
-use std::{
-    collections::VecDeque,
-    io::Stderr,
-    pin::Pin,
-    time::{Duration, Instant},
-};
+use std::{io::Stderr, time::Duration};
 
-use async_stream::try_stream;
 use crossterm::event::{Event, KeyCode, KeyEvent};
 use futures::Stream;
 use quick_error::quick_error;
@@ -13,15 +7,16 @@ use tokio::pin;
 use tokio_stream::StreamExt;
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Cell, Row, Table},
     Frame, Terminal,
 };
 
 use crate::{
-    battery::battery,
     commands::adb::{LogBuffer, LogLevel, LogMessage},
+    fps_overlay::{FpsOverlay, FpsOverlayState},
+    status::{StatusBar, StatusBarState},
 };
 
 quick_error! {
@@ -84,16 +79,16 @@ fn style_from_level(level: LogLevel) -> Style {
 
 pub struct LogcatApp {
     logs: Vec<LogMessage>,
-    frames: VecDeque<Instant>,
-    battery: Option<Result<i32, crate::battery::Error>>,
+    status_bar: StatusBarState,
+    fps_overlay: FpsOverlayState,
 }
 
 impl LogcatApp {
     pub fn new() -> Self {
         Self {
             logs: Default::default(),
-            frames: Default::default(),
-            battery: Default::default(),
+            status_bar: StatusBarState::new(),
+            fps_overlay: FpsOverlayState::new(128),
         }
     }
 
@@ -130,29 +125,18 @@ impl LogcatApp {
         });
         pin!(poll_events);
 
-        let mut battery_level_stream: Pin<
-            Box<dyn Stream<Item = Result<i32, crate::battery::Error>>>,
-        > = Box::pin(try_stream! {
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
-
-            loop {
-                let battery = battery().await?;
-                yield battery;
-                interval.tick().await;
-            }
-        });
-
-        // self.logs = logs.take(10).collect().await;
-
         let target_fps = 60;
         let mut interval = tokio::time::interval(Duration::from_micros(
             (1000000.0 / target_fps as f64) as u64,
         ));
+
+        let mut update = false;
+
         loop {
             enum Event {
                 Log(LogMessage),
                 KeyEvent(KeyEvent),
-                Battery(Result<i32, crate::battery::Error>),
+                WidgetUpdate,
                 Tick,
             }
 
@@ -163,8 +147,8 @@ impl LogcatApp {
                 key = poll_events.next() => {
                     Event::KeyEvent(key.unwrap())
                 },
-                battery = battery_level_stream.next() => {
-                    Event::Battery(battery.unwrap())
+                _ = self.status_bar.poll() => {
+                    Event::WidgetUpdate
                 },
                 _ = interval.tick() => {
                     Event::Tick
@@ -173,21 +157,21 @@ impl LogcatApp {
 
             match next {
                 Event::Log(log) => {
+                    update = true;
                     self.logs.push(log);
                 }
                 Event::KeyEvent(key) => match key.code {
                     KeyCode::Char('q') => return Ok(()),
                     _ => {}
                 },
-                Event::Battery(battery) => {
-                    self.battery = Some(battery);
+                Event::WidgetUpdate => {
+                    update = true;
                 }
                 Event::Tick => {
-                    self.frames.push_back(Instant::now());
-                    if self.frames.len() > 1024 {
-                        self.frames.pop_front();
+                    if update {
+                        terminal.draw(|f| self.ui(f)).unwrap();
+                        update = false;
                     }
-                    terminal.draw(|f| self.ui(f)).unwrap();
                 }
             }
         }
@@ -198,16 +182,6 @@ impl LogcatApp {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(10), Constraint::Length(1)])
             .split(f.size());
-
-        let fps = if self.frames.len() >= 16 {
-            Some(
-                (self.frames.len() as f32
-                    / (*self.frames.back().unwrap() - *self.frames.front().unwrap()).as_secs_f32())
-                    as u32,
-            )
-        } else {
-            None
-        };
 
         let header = Row::new(["Tag", "Date", "Message"]);
 
@@ -236,23 +210,12 @@ impl LogcatApp {
                 Constraint::Percentage(100),
             ]);
 
-        let battery = match self.battery {
-            Some(Ok(battery)) => battery.to_string(),
-            Some(Err(_)) => "err".to_string(),
-            None => "-".to_string(),
-        };
-
-        let fps = match fps {
-            Some(fps) => fps.to_string(),
-            None => "-".to_string(),
-        };
-
-        let status = Paragraph::new(format!("battery: {battery} fps: {fps}"))
-            .style(Style::default().bg(Color::Magenta).fg(Color::White))
-            .alignment(Alignment::Right)
-            .wrap(Wrap { trim: false });
-
         f.render_widget(table, chunks[0]);
-        f.render_widget(status, chunks[1]);
+
+        let status_bar = StatusBar::new();
+        f.render_stateful_widget(status_bar, chunks[1], &mut self.status_bar);
+
+        let fps_overlay = FpsOverlay::new();
+        f.render_stateful_widget(fps_overlay, f.size(), &mut self.fps_overlay);
     }
 }

@@ -19,8 +19,10 @@ use tui::{backend::CrosstermBackend, Terminal};
 mod battery;
 mod cache;
 mod cli;
+mod fps_overlay;
 mod init_shell;
 mod logcat;
+mod status;
 
 mod commands {
     pub(crate) mod adb;
