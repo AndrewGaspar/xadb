@@ -21,7 +21,7 @@ use tui::{
 
 use crate::{
     battery::battery,
-    commands::adb::{LogBuffer, LogMessage},
+    commands::adb::{LogBuffer, LogLevel, LogMessage},
 };
 
 quick_error! {
@@ -53,6 +53,33 @@ fn crossterm_event_stream() -> impl Stream<Item = crossterm::Result<Event>> {
     });
 
     return tokio_stream::wrappers::UnboundedReceiverStream::from(rx);
+}
+
+fn level_to_bg_color(level: LogLevel) -> Option<Color> {
+    match level {
+        LogLevel::Fatal => Some(Color::Red),
+        LogLevel::Error => Some(Color::LightRed),
+        LogLevel::Warning => Some(Color::Yellow),
+        _ => None,
+    }
+}
+
+fn level_to_fg_color(level: LogLevel) -> Option<Color> {
+    match level {
+        LogLevel::Fatal | LogLevel::Error | LogLevel::Warning => Some(Color::Black),
+        _ => None,
+    }
+}
+
+fn style_from_level(level: LogLevel) -> Style {
+    let mut style = Style::default();
+    if let Some(bg) = level_to_bg_color(level) {
+        style = style.bg(bg);
+    }
+    if let Some(fg) = level_to_fg_color(level) {
+        style = style.fg(fg);
+    }
+    style
 }
 
 pub struct LogcatApp {
@@ -188,28 +215,20 @@ impl LogcatApp {
             .logs
             .iter()
             .rev()
-            .scan(chunks[0].height, |height, message| {
-                if *height == 0 {
-                    return None;
-                }
-
+            .map(|message| {
                 let LogBuffer::TextLog(ref buffer) = message.buffer else { panic!() };
 
-                let lines = buffer.message.lines().count();
-
-                *height = (*height as usize).saturating_sub(lines) as u16;
-                Some(
-                    Row::new([
-                        Cell::from(buffer.tag.clone()),
-                        Cell::from(message.timestamp.to_string()),
-                        Cell::from(buffer.message.clone()),
-                    ]), // .height(lines.try_into().unwrap()),
-                )
+                Row::new([
+                    Cell::from(buffer.tag.clone()),
+                    Cell::from(message.timestamp.to_string()),
+                    Cell::from(buffer.message.clone()),
+                ])
+                .style(style_from_level(buffer.level))
             })
+            .take(chunks[0].height as usize)
             .collect::<Vec<_>>();
 
         let table = Table::new(rows.into_iter().rev())
-            .style(Style::default().fg(Color::White))
             .header(header.style(Style::default().bg(Color::Gray).fg(Color::Black)))
             .widths(&[
                 Constraint::Length(20),
@@ -229,7 +248,7 @@ impl LogcatApp {
         };
 
         let status = Paragraph::new(format!("battery: {battery} fps: {fps}"))
-            .style(Style::default().fg(Color::White))
+            .style(Style::default().bg(Color::Magenta).fg(Color::White))
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false });
 

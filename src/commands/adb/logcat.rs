@@ -37,7 +37,7 @@ const LOG_ID_SECURITY: u32 = 6;
 #[allow(unused)]
 const LOG_ID_KERNEL: u32 = 7;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum LogLevel {
     Other(u8),
     Verbose,

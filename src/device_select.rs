@@ -318,7 +318,7 @@ impl DeviceSelectApp {
                     )),
                 ];
 
-                ListItem::new(lines).style(Style::default().fg(Color::White))
+                ListItem::new(lines)
             })
             .collect();
 
@@ -328,7 +328,7 @@ impl DeviceSelectApp {
             .highlight_style(
                 Style::default()
                     .fg(Color::Black)
-                    .bg(Color::White)
+                    .bg(Color::Gray)
                     .add_modifier(Modifier::BOLD),
             );
 
