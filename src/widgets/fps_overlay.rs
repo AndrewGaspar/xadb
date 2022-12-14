@@ -41,7 +41,7 @@ impl StatefulWidget for FpsOverlay {
             state.frames.pop_front();
         }
 
-        let fps = if state.frames.len() >= 16 {
+        let fps = if state.frames.len() >= 2 {
             Some(
                 (state.frames.len() as f32
                     / (*state.frames.back().unwrap() - *state.frames.front().unwrap())

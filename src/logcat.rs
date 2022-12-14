@@ -193,9 +193,9 @@ impl LogcatApp {
                 let LogBuffer::TextLog(ref buffer) = message.buffer else { panic!() };
 
                 Row::new([
-                    Cell::from(buffer.tag.clone()),
+                    Cell::from(buffer.tag.as_str()),
                     Cell::from(message.timestamp.to_string()),
-                    Cell::from(buffer.message.clone()),
+                    Cell::from(buffer.message.as_str()),
                 ])
                 .style(style_from_level(buffer.level))
             })
