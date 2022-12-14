@@ -10,7 +10,7 @@ use crate::commands::{adb, fastboot};
 
 #[derive(Clone, Debug)]
 pub struct AdbDevice {
-    pub serial: String,
+    pub connection_name: String,
     pub properties: AdbDeviceProperties,
 }
 
@@ -44,7 +44,7 @@ impl AdbDevice {
     pub fn parse(line: &str) -> Result<AdbDevice, Error> {
         lazy_static::lazy_static! {
             static ref RE: Regex = Regex::new(r"(?x)
-            ^(?P<serial>\w+)
+            ^(?P<connection_name>[[[:word:]][[:punct:]]]+)
             \s+
             (?P<connection_state>[[:alpha:]]+)
             \s
@@ -62,7 +62,7 @@ impl AdbDevice {
             .captures(line)
             .ok_or_else(|| Error::Parse(line.to_string()))?;
 
-        let serial = captures["serial"].to_string();
+        let connection_name = captures["connection_name"].to_string();
         let connection_state = captures["connection_state"].to_string();
         let devpath = captures["devpath"].to_string();
 
@@ -84,7 +84,7 @@ impl AdbDevice {
         };
 
         Ok(AdbDevice {
-            serial,
+            connection_name,
             properties: AdbDeviceProperties {
                 connection_state,
                 devpath,

@@ -134,10 +134,10 @@ impl DeviceSelectApp {
 
         let mut devices = Vec::new();
         for (i, device) in live_devices.into_iter().enumerate() {
-            cache.save_device(&device.serial, &device.properties);
-            live_device_map.insert(device.serial.clone(), i);
+            cache.save_device(&device.connection_name, &device.properties);
+            live_device_map.insert(device.connection_name.clone(), i);
             devices.push(DeviceItem {
-                serial: device.serial,
+                serial: device.connection_name,
                 live: Some(device.properties),
                 cache: None,
             });
@@ -163,8 +163,10 @@ impl DeviceSelectApp {
     }
 
     async fn update_devices(&mut self, devices: Vec<AdbDevice>) -> Result<(), Error> {
-        let mut new_devices: HashMap<String, AdbDevice> =
-            devices.into_iter().map(|d| (d.serial.clone(), d)).collect();
+        let mut new_devices: HashMap<String, AdbDevice> = devices
+            .into_iter()
+            .map(|d| (d.connection_name.clone(), d))
+            .collect();
 
         // check which devices have new state
         for current in &mut self.items.items {
