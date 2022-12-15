@@ -8,12 +8,15 @@ use std::{
 use cache::Cache;
 use clap::Parser;
 use cli::{Args, Command};
+use commands::adb::track_devices;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use device_select::DeviceSelectApp;
+use devices::query_devices_continuously;
+use futures::StreamExt;
 use tui::{backend::CrosstermBackend, Terminal};
 
 mod battery;
@@ -177,6 +180,20 @@ eval "$(xadb init-shell bash)"
 
             let mut app = logcat::LogcatApp::new();
             app.run(&mut terminal.terminal).await?;
+            Ok(())
+        }
+        Command::TrackDevices => {
+            let mut devices = Box::pin(track_devices());
+            while let Some(device) = devices.next().await {
+                println!("{device:?}");
+            }
+            Ok(())
+        }
+        Command::AllDevices => {
+            let mut devices = Box::pin(query_devices_continuously(Duration::from_secs(10)));
+            while let Some(device) = devices.next().await {
+                println!("{device:?}");
+            }
             Ok(())
         }
     }

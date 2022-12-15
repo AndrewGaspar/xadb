@@ -1,12 +1,17 @@
-use std::time::Duration;
+use std::{num::ParseIntError, str::Utf8Error, time::Duration};
 
-use async_stream::try_stream;
+use async_stream::stream;
+use bytes::Buf;
 use quick_error::quick_error;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use tokio::time::MissedTickBehavior;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::commands::{adb, fastboot};
+use crate::commands::{
+    adb::{self, track_devices},
+    fastboot,
+};
 
 #[derive(Clone, Debug)]
 pub struct AdbDevice {
@@ -33,7 +38,25 @@ pub struct AdbDeviceLiveProperties {
 quick_error! {
     #[derive(Debug)]
     pub enum Error {
+        TrackDevicesDecodeError(err: TrackDevicesDecodeError) {
+            from()
+        }
         Parse(line: String)
+        Io(err: std::io::Error) {
+            from()
+        }
+    }
+}
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum TrackDevicesDecodeError {
+        Utf8Error(err: Utf8Error) {
+            from()
+        }
+        ParseIntError(err: ParseIntError) {
+            from()
+        }
         Io(err: std::io::Error) {
             from()
         }
@@ -94,21 +117,84 @@ impl AdbDevice {
     }
 }
 
-pub fn online_devices() -> impl Stream<Item = Result<AdbDevice, crate::devices::Error>> {
+pub async fn online_devices() -> Vec<Result<AdbDevice, crate::devices::Error>> {
     let adb_devices = adb::devices();
     let fastboot_devices = fastboot::devices();
-    adb_devices.chain(fastboot_devices)
+    let (adb_devices, fastboot_devices) = tokio::join!(adb_devices, fastboot_devices);
+    adb_devices.into_iter().chain(fastboot_devices).collect()
 }
 
-pub fn query_devices_continuously(
+fn poll_fastboot(
     poll_rate: Duration,
-) -> impl Stream<Item = Result<Vec<AdbDevice>, crate::devices::Error>> {
+) -> impl Stream<Item = Vec<Result<AdbDevice, crate::devices::Error>>> {
     let mut interval = tokio::time::interval(poll_rate);
-    try_stream! {
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    stream! {
         loop {
             interval.tick().await;
-            let devices = online_devices().collect().await;
-            yield devices?;
+            yield fastboot::devices().await;
         }
+    }
+}
+
+pub fn query_devices_continuously(poll_rate: Duration) -> impl Stream<Item = Vec<AdbDevice>> {
+    let mut fastboot_devices = Box::pin(poll_fastboot(poll_rate));
+    let mut adb_devices = Box::pin(track_devices().filter_map(Result::ok));
+
+    let mut current_fastboot = None;
+    let mut current_adb = None;
+    stream! {
+        loop {
+            tokio::select! {
+                devices = fastboot_devices.next() => {
+                    current_fastboot = devices;
+                },
+                devices = adb_devices.next() => {
+                    current_adb = devices;
+                }
+            }
+
+            match (current_fastboot.as_ref(), current_adb.as_ref()) {
+                (Some(fastboot), Some(adb)) => {
+                    yield fastboot.iter().chain(adb.iter()).filter_map(|x| match x {
+                        Ok(devices) => Some(devices.clone()),
+                        Err(_) => None,
+                    }).collect();
+                }
+                (_, _) => {}
+            }
+        }
+    }
+}
+
+pub struct TrackDevicesDecoder;
+
+impl TrackDevicesDecoder {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl tokio_util::codec::Decoder for TrackDevicesDecoder {
+    type Item = Vec<Result<AdbDevice, Error>>;
+
+    type Error = TrackDevicesDecodeError;
+
+    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.len() < 4 {
+            src.reserve(256);
+            return Ok(None);
+        }
+
+        let len = u16::from_str_radix(std::str::from_utf8(&src[0..4])?, 16)? as usize;
+
+        let message = std::str::from_utf8(&src[4..len + 4])?;
+
+        let devices = message.lines().map(AdbDevice::parse).collect();
+
+        src.advance(len + 4);
+
+        Ok(Some(devices))
     }
 }

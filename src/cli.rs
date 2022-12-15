@@ -23,4 +23,8 @@ pub enum Command {
     Battery,
     #[clap(about = "Enhanced logcat")]
     Logcat,
+    #[clap(about = "debug")]
+    TrackDevices,
+    #[clap(about = "debug")]
+    AllDevices,
 }

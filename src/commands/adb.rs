@@ -5,7 +5,8 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
 };
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
+use tokio_util::codec::FramedRead;
 
 use crate::devices::AdbDevice;
 
@@ -38,33 +39,30 @@ pub fn shell(command: &str) -> impl Stream<Item = tokio::io::Result<String>> {
     }
 }
 
-pub fn devices() -> impl Stream<Item = Result<AdbDevice, crate::devices::Error>> {
-    let adb = get_adb()
-        .args(shell_words::split("devices -l").unwrap().as_slice())
+pub async fn devices() -> Vec<Result<AdbDevice, crate::devices::Error>> {
+    track_devices().next().await.unwrap().unwrap()
+}
+
+pub fn track_devices() -> impl Stream<
+    Item = Result<
+        Vec<Result<AdbDevice, crate::devices::Error>>,
+        crate::devices::TrackDevicesDecodeError,
+    >,
+> {
+    let track_devices = get_adb()
+        .args(shell_words::split("track-devices -l").unwrap().as_slice())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
 
-    let stdout = BufReader::new(adb.stdout.unwrap());
-    let mut lines = stdout.lines();
+    let device_state_stream = FramedRead::new(
+        BufReader::new(track_devices.stdout.unwrap()),
+        crate::devices::TrackDevicesDecoder::new(),
+    );
 
-    try_stream! {
-        let first = lines.next_line().await?;
-        assert_eq!(
-            Some("List of devices attached"),
-            first.as_ref().map(|s| s.as_str())
-        );
-
-        loop {
-            match lines.next_line().await? {
-                Some(empty) if empty == "" => break,
-                Some(line) => yield AdbDevice::parse(&line)?,
-                None => break,
-            }
-        }
-    }
+    device_state_stream
 }
 
 pub use logcat::*;

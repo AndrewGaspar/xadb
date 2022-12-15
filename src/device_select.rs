@@ -124,23 +124,24 @@ impl DeviceSelectApp {
     pub async fn load_initial_state() -> Result<DeviceSelectApp, Error> {
         let cache = Cache::load_from_disk();
 
-        let live_devices = crate::devices::online_devices().collect();
+        let live_devices = crate::devices::online_devices();
 
-        let (cache, live_devices): (_, Result<Vec<_>, _>) = tokio::join!(cache, live_devices);
+        let (cache, live_devices) = tokio::join!(cache, live_devices);
         let mut cache = cache?;
-        let live_devices = live_devices?;
 
         let mut live_device_map = HashMap::new();
 
         let mut devices = Vec::new();
         for (i, device) in live_devices.into_iter().enumerate() {
-            cache.save_device(&device.connection_name, &device.properties);
-            live_device_map.insert(device.connection_name.clone(), i);
-            devices.push(DeviceItem {
-                serial: device.connection_name,
-                live: Some(device.properties),
-                cache: None,
-            });
+            if let Ok(device) = device {
+                cache.save_device(&device.connection_name, &device.properties);
+                live_device_map.insert(device.connection_name.clone(), i);
+                devices.push(DeviceItem {
+                    serial: device.connection_name,
+                    live: Some(device.properties),
+                    cache: None,
+                });
+            }
         }
 
         cache.persist().await?;
@@ -217,7 +218,7 @@ impl DeviceSelectApp {
                 .unwrap_or_else(|| Duration::from_secs(0));
 
             enum Event {
-                Devices(Result<Vec<AdbDevice>, crate::devices::Error>),
+                Devices(Vec<AdbDevice>),
                 CrosstermEvent(Option<CrosstermEvent>),
             }
 
@@ -236,7 +237,7 @@ impl DeviceSelectApp {
             };
 
             match next {
-                Event::Devices(Ok(devices)) => {
+                Event::Devices(devices) => {
                     self.update_devices(devices).await?;
                 }
                 Event::CrosstermEvent(event) => {
@@ -267,7 +268,6 @@ impl DeviceSelectApp {
                         last_tick = Instant::now();
                     }
                 }
-                _ => {}
             }
         }
     }

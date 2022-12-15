@@ -5,7 +5,7 @@ use tokio_stream::StreamExt;
 use tui::{
     layout::Constraint,
     style::{Color, Modifier, Style},
-    widgets::{Block, Cell, Row, StatefulWidget, Table, TableState, Widget},
+    widgets::{Block, Cell, Row, StatefulWidget, Table, Widget},
 };
 
 use crate::{
